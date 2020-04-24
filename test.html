@@ -1,0 +1,221 @@
+<!doctype html>
+<html>
+<head>
+    <!--进行一些网页的显示设置-->
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no, width=device-width">
+    <title>高德地图公交线路数据获取</title>
+    <!--连接到高德服务器的一个显示方案，好像是-->
+    <link rel="stylesheet" href="https://a.amap.com/jsapi_demos/static/demo-center/css/demo-center.css"/>
+    <style type="text/css">
+        html,body,#container{
+            height:100%;
+            width:100%;
+        }
+    </style>
+</head>
+<body>
+<!--读取本地文件控件-->
+<div>
+    <h1>第一步：选择线路文件</h1>
+    <p>需要按F12键（或FN+F12）打开控制台查看脚本运行进度</p>
+    <input type="file" id="files"/>
+    <input type="button" value="读取结果" onclick="result()"/>
+</div>
+<!--开始请求数据控件-->
+<div>
+    <h1>第二步：开始获取数据</h1>
+    <p>控制台输出“文件读取成功后”，请点击按钮开始执行数据获取程序</p>
+    <input type="button" value="目标城市" onclick="citycheck()"/>
+    <input id="start" type="button" value="获取数据" />
+    <input type="button" value="进度查询" onclick="how()"/>
+</div>
+<!--读取本地线路数据的脚本-->
+<script>
+    var inputElement = document.getElementById("files");
+    inputElement.addEventListener("change", handleFiles, false);
+    var names=[];//读取公交线路名称列表，并储存为数组
+    function handleFiles() {
+        var selectedFile = document.getElementById("files").files[0];//获取读取的File对象
+        var name = selectedFile.name;//读取选中文件的文件名
+        var size = selectedFile.size;//读取选中文件的大小
+        console.log("文件名:"+name+"大小："+size+'kb');
+        var reader = new FileReader();//这里是核心！！！读取操作就是由它完成的。
+        reader.readAsText(selectedFile,'utf-8');//读取文件的内容
+        reader.onload = function(){
+            console.log("文件读取成功");//当读取完成之后会回调这个函数，然后此时文件的内容存储到了result中。直接操作即可。
+            getnames(this.result);
+        }
+    }
+    function getnames(result){
+        var rows=result.split('\n');
+        for(var i=0;i<rows.length;++i) {
+            names.push(rows[i]);
+        }
+    }
+    //返回线路文件读取结果
+    function result(){
+        console.log('读取到的公交（地铁）线路共计：',names.length-2);//减去首行城市名、尾行空行
+    }
+</script>
+<!--实例化高德地图控件-->
+<div id="container"></div>
+<!--公交线路搜索控件
+<div class="input-card" style='width:18rem;'>
+    <label style='color:grey'>公交线路查询</label>
+<div class="input-item">
+        <div class="input-item-prepend"><span class="input-item-text" >线路名称</span></div>
+        <input id='BusLineName' type="text" value='919' >
+</div>
+    <input id="search" type="button" class="btn" value="查询" />
+</div>
+-->
+<!--高德数据、公交线路搜索接口-->
+<script type="text/javascript"
+        src="https://webapi.amap.com/maps?v=1.4.15&key=37766c5c2275df68b48b60da155faed1&plugin=AMap.LineSearch">
+</script>
+<!--获取数据-->
+<script language="javascript">
+    /*创建全局变量，分三个表储存每条线路的信息{name:线路名称,stime:首班时间,etime:末班时间,basic_price:起步票价,total_price:全程票价,
+    distance:全程距离},{linename:线路名称,via_stops:途径站点}{linename:线路名称,path:[线路经纬度]}*/
+    var buslines=[];
+    var busstops=[];
+    var linedraw=[];//用于储存path的中间数组
+    var drawlines=[];
+    function citycheck(){
+        console.log(names[0]);	
+    }
+    /*
+     * 主要流程分为三个步骤，即定义了三个函数
+     * 1. 首先调用公交路线查询服务(lineSearch)
+     * 2. 根据返回结果解析，输出解析结果(lineSearch_Callback)
+     * 3. 在地图上绘制公交线路(drawbusLine)
+    */
+    //实例化高德地图，即使结果显示在网页中
+    var map = new AMap.Map("container", {
+        resizeEnable: true,
+        center: [108.911945, 34.371075],//地图中心点，初始化需要，随意设置
+        zoom: 15 //地图显示的缩放级别
+    });
+    var linesearch;
+    //公交线路查询
+    function lineSearch(busLineName) {
+        /*示例中有搜索控件时执行
+        var busLineName = document.getElementById('BusLineName').value;
+        if(!busLineName) return;
+        //实例化公交线路查询类，只取回一条路线，可能是上行、下行线路只取一条，“!”是逻辑的“非”
+        if(!linesearch){
+            linesearch = new AMap.LineSearch({
+                pageIndex: 1,
+                city: '福州市',//目标城市
+                pageSize: 1,
+                extensions: 'all'//获取详细信息
+            });
+        }*/
+        //实例化公交线路查询类
+        linesearch = new AMap.LineSearch({
+            pageIndex: 1,
+            city:names[0],//目标城市，替换后，起不到限定功能
+            pageSize: 1,
+            extensions: 'all'//获取详细信息
+        });
+        //搜索“buslinename”相关公交线路
+        linesearch.search(busLineName, function (status, result) {
+            map.clearMap()
+            if (status === 'complete' && result.info === 'OK') {
+                lineSearch_Callback(result);//成功查询，调用结果解析函数，如下面指定
+            } else {
+                //该公交线路名称无法查询到线路数据，存入未获取数据的数组——无法
+                //alert(result);//alert('网页弹出的错误信息')
+            }
+        });
+    }
+    /*公交路线查询服务返回数据解析概况*/
+    function lineSearch_Callback(data) {
+        var lineArr = data.lineInfo;//公交线路信息的数组，[id、name、path等]
+        var lineNum = data.lineInfo.length;//返回该数组的长度，即线路数目（可能公交查询结果有多条？）
+        if (lineNum == 0) {
+        } else {
+            for (var i = 0; i < lineNum; i++) {
+                //所有数据转存到全局变量中
+                var bname=lineArr[i].name;
+                var sstop=lineArr[i].start_stop;
+                var estop=lineArr[i].end_stop;
+                var pathArr = lineArr[i].path;//公交线路经纬度
+                var stops = lineArr[i].via_stops;//途径站
+                var startPot = stops[0].location;//首发站经纬度
+                var endPot = stops[stops.length - 1].location;//终点站经纬度
+                var stime=lineArr[i].stime;
+                var etime=lineArr[i].etime;
+                var bprice=lineArr[i].basic_price;
+                var tprice=lineArr[i].total_price;
+                var dis=lineArr[i].distance;
+                console.log('已找到',bname);
+                /*blr.push({linename:bname,sstop:sstop,estop:estop,stops:stops,stime:stime,etime:etime,
+                    bprice:bprice,tprice:tprice,path:pathArr,dis:dis});*/
+                savedata(bname,sstop,estop,stops,stime,etime,bprice,tprice,pathArr,dis);
+                if (i == 0) //只绘制一条线路
+                    drawbusLine(startPot, endPot, pathArr);//绘制线路的函数，如下面指定
+            }
+        }
+    }
+    //绘制路线
+    function drawbusLine(startPot, endPot, BusArr) {
+        //绘制起点，终点
+        new AMap.Marker({
+            map: map,
+            position: startPot, //基点位置
+            icon: "https://webapi.amap.com/theme/v1.3/markers/n/start.png",
+            zIndex: 10
+        });
+        new AMap.Marker({
+            map: map,
+            position: endPot, //基点位置
+            icon: "https://webapi.amap.com/theme/v1.3/markers/n/end.png",
+            zIndex: 10
+        });
+        //绘制乘车的路线
+        busPolyline = new AMap.Polyline({
+            map: map,
+            path: BusArr,
+            strokeColor: "#0099ff",//线颜色
+            strokeOpacity: 0.8,//线透明度
+            isOutline: true,
+            outlineColor: 'white',
+            strokeWeight: 6//线宽
+        });
+        map.setFitView();
+    }
+    function savedata(bname,sstop,estop,stops,stime,etime,bprice,tprice,pathArr,dis){
+        //线路信息总表
+        buslines.push({linename:bname,start:sstop,end:estop,stime:stime,etime:etime,bprice:bprice,tprice:tprice,dis:dis});
+        //线路沿线站点总表
+        for(var i=0;i<stops.length;++i){
+            busstops.push({linename:bname,id:stops[i]['id'],stopname:stops[i]['name'],sequence:stops[i]['sequence'],
+                lng:stops[i]['location']['lng'],lat:stops[i]['location']['lat']});
+        }
+        linedraw.push(pathArr);
+    }
+    function startget() {
+        var num = names.length;
+        //利用for循环遍历所有目标公交线路
+        for (var j = 1; j < num; j++) {
+            lineSearch(names[j]);
+        }
+    }
+    //查询数据获取进度
+    function how(){
+        //线路绘制点位总表
+        for(var i=0;i<linedraw.length;++i){
+            for (var j=0;j<linedraw[i].length;++j){
+                drawlines.push({order:j+1,lng:linedraw[i][j]['lng'],lat:linedraw[i][j]['lat']});
+            }
+        }
+        let b=buslines.length
+        console.log('已获取线路数为：',b);
+    }
+    document.getElementById('start').onclick = startget;
+</script>
+</body>
+</html>
